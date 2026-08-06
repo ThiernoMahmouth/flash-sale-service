@@ -1,0 +1,65 @@
+services:
+  redpanda:
+    image: redpandadata/redpanda:latest
+    container_name: flashsale-redpanda
+    command:
+      - redpanda start
+      - --smp 1
+      - --memory 512M
+      - --overprovisioned
+      - --node-id 0
+      - --kafka-addr PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr PLAINTEXT://redpanda:9092
+    ports:
+      - "9093:9092"
+    networks:
+      - flashsale-net
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "info"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  flash-sale-db:
+    image: postgres:16-alpine
+    container_name: flash-sale-db
+    environment:
+      POSTGRES_DB: flash_sale_db
+      POSTGRES_USER: flashsale_user
+      POSTGRES_PASSWORD: flashsale_pass
+    ports:
+      - "5436:5432"
+    networks:
+      - flashsale-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flashsale_user -d flash_sale_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  flash-sale-service:
+    build: ./flash-sale-service
+    container_name: flash-sale-service
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://flash-sale-db:5432/flash_sale_db
+      SPRING_DATASOURCE_USERNAME: flashsale_user
+      SPRING_DATASOURCE_PASSWORD: flashsale_pass
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+    depends_on:
+      flash-sale-db:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+    ports:
+      - "8090:8090"
+    networks:
+      - flashsale-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8090/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+networks:
+  flashsale-net:
+    driver: bridge
