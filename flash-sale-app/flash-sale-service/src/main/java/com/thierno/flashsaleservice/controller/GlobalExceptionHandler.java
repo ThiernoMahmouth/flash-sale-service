@@ -65,7 +65,7 @@ public class GlobalExceptionHandler {
             Exception ex,
             HttpServletRequest request) {
 
-        log.error(ex.getMessage());
+        log.error(ex.getMessage(), ex);
         ProblemDetail problem = ProblemDetail.forStatus(500);
 
         problem.setTitle("Internal server error");
