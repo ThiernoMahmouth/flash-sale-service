@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Component
@@ -33,19 +34,15 @@ public class OutboxPublisher {
         for (OutboxEvent event : pending) {
             try {
                 rawKafkaTemplate.send(event.getTopic(), event.getAggregateId(), event.getPayload())
-                        .whenComplete((result, ex) -> {
-                            if (ex != null) {
-                                log.error("Failed to publish outbox event id={} topic={}",
-                                        event.getId(), event.getTopic(), ex);
-                            }
-                        });
+                        .get(5, TimeUnit.SECONDS);
 
                 event.setStatus("PUBLISHED");
                 event.setPublishedAt(Instant.now());
                 outboxService.saveOrUpdate(event);
 
             } catch (Exception e) {
-                log.error("Error processing outbox event id={}", event.getId(), e);
+                log.error("Failed to publish outbox event id={} topic={} - will retry next run",
+                        event.getId(), event.getTopic(), e);
             }
         }
     }
