@@ -7,12 +7,6 @@ A standalone Spring Boot 4 / Java 25 service implementing two user stories:
 - **User Story 2**: premium customers get priority access to flash sales, based on
   membership level and purchase history.
 
-It reuses the same architectural patterns as the earlier `ecom-app` kata (Postgres +
-Flyway, a transactional outbox publishing to Kafka, `BusinessException`/`ErrorType`/
-`GlobalExceptionHandler` error handling, Testcontainers + embedded-Kafka integration
-tests) but is a fully independent project - own database, own Kafka broker, own
-`docker-compose.yml`.
-
 ## Architecture
 
 ```text
@@ -109,3 +103,20 @@ mvn test
 This project follows a simplified Git Flow: `develop` is the integration branch, and
 each user story was implemented on its own `feature/user_story_*` branch before being
 merged back into `develop`.
+
+## Next steps
+
+Known gaps, left out of scope for this exercise:
+
+- No authentication: `customerId` is a trusted client-supplied string, and
+  `POST /api/flash-sales` / `POST /api/customers` are open to anyone.
+- No idempotency key on `POST .../purchase-requests`; a client-side network retry can
+  submit the same purchase twice (unlike the Kafka consumer side, which is idempotent).
+- `flash-sale.priority.early-access-min-level` is a single global setting; a real
+  system would likely want it configurable per sale.
+- The scheduled allocation processor assumes a single running instance - safe today,
+  but would need a distributed lock (e.g. ShedLock) or leader election before scaling
+  `flash-sale-service` horizontally.
+- No cancellation/refund flow; a `CONFIRMED` purchase is final.
+- No DB-level `CHECK` constraints (e.g. `sold_stock <= total_stock`) as a defense-in-depth
+  safety net beyond the application-level checks.
