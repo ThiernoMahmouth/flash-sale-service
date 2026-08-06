@@ -43,8 +43,22 @@ public enum ErrorType {
             "SALE_003",
             "Invalid Flash Sale Window",
             HttpStatus.BAD_REQUEST,
-            "startTime must be before endTime",
-            "invalid-sale-window");
+            "earlyAccessStart must be <= startTime, and startTime must be before endTime",
+            "invalid-sale-window"),
+
+    EARLY_ACCESS_DENIED(
+            "SALE_005",
+            "Early Access Denied",
+            HttpStatus.FORBIDDEN,
+            "This flash sale is in its early-access window, reserved for higher-tier members",
+            "early-access-denied"),
+
+    CUSTOMER_NOT_FOUND(
+            "CUST_404",
+            "Customer Not Found",
+            HttpStatus.NOT_FOUND,
+            "No customer found for the given id",
+            "customer-not-found");
 
     private final String     code;
     private final String     title;

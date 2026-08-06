@@ -22,7 +22,9 @@ public class FlashSaleService {
 
     @Transactional
     public FlashSale create(CreateFlashSaleRequest request) {
-        if (!request.startTime().isBefore(request.endTime())) {
+        boolean validWindow = !request.earlyAccessStart().isAfter(request.startTime())
+                && request.startTime().isBefore(request.endTime());
+        if (!validWindow) {
             throw new InvalidSaleWindowException();
         }
 
@@ -30,13 +32,14 @@ public class FlashSaleService {
         sale.setProductId(request.productId());
         sale.setTotalStock(request.totalStock());
         sale.setSoldStock(0);
+        sale.setEarlyAccessStart(request.earlyAccessStart());
         sale.setStartTime(request.startTime());
         sale.setEndTime(request.endTime());
 
         FlashSale saved = flashSaleRepository.save(sale);
-        log.info("Created flash sale id={} productId={} totalStock={} window=[{}, {})",
+        log.info("Created flash sale id={} productId={} totalStock={} earlyAccess={} window=[{}, {})",
                 saved.getId(), saved.getProductId(), saved.getTotalStock(),
-                saved.getStartTime(), saved.getEndTime());
+                saved.getEarlyAccessStart(), saved.getStartTime(), saved.getEndTime());
         return saved;
     }
 
