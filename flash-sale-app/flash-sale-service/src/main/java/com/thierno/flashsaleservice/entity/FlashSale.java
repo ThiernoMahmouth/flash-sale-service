@@ -33,6 +33,9 @@ public class FlashSale {
     @Column(name = "sold_stock", nullable = false)
     private Integer soldStock = 0;
 
+    @Column(name = "early_access_start", nullable = false)
+    private Instant earlyAccessStart;
+
     @Column(name = "start_time", nullable = false)
     private Instant startTime;
 

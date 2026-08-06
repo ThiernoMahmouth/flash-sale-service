@@ -1,11 +1,15 @@
 package com.thierno.flashsaleservice.unitaires;
 
 import com.thierno.flashsaleservice.dto.CreatePurchaseRequestDto;
+import com.thierno.flashsaleservice.entity.Customer;
 import com.thierno.flashsaleservice.entity.FlashSale;
+import com.thierno.flashsaleservice.entity.MembershipLevel;
 import com.thierno.flashsaleservice.entity.PurchaseRequest;
+import com.thierno.flashsaleservice.exception.EarlyAccessDeniedException;
 import com.thierno.flashsaleservice.exception.SaleEndedException;
 import com.thierno.flashsaleservice.exception.SaleNotStartedException;
 import com.thierno.flashsaleservice.exception.SaleSoldOutException;
+import com.thierno.flashsaleservice.repository.CustomerRepository;
 import com.thierno.flashsaleservice.repository.PurchaseRequestRepository;
 import com.thierno.flashsaleservice.service.FlashSaleService;
 import com.thierno.flashsaleservice.service.PurchaseRequestService;
@@ -15,9 +19,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -33,6 +39,9 @@ class PurchaseRequestServiceTest {
     private PurchaseRequestRepository purchaseRequestRepository;
 
     @Mock
+    private CustomerRepository customerRepository;
+
+    @Mock
     private FlashSaleService flashSaleService;
 
     @InjectMocks
@@ -43,6 +52,7 @@ class PurchaseRequestServiceTest {
     @BeforeEach
     void setUp() {
         flashSaleId = UUID.randomUUID();
+        ReflectionTestUtils.setField(purchaseRequestService, "earlyAccessMinLevel", MembershipLevel.GOLD);
         lenient().when(purchaseRequestRepository.save(any(PurchaseRequest.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
     }
@@ -52,6 +62,7 @@ class PurchaseRequestServiceTest {
         sale.setId(flashSaleId);
         sale.setTotalStock(10);
         sale.setSoldStock(0);
+        sale.setEarlyAccessStart(Instant.now().minus(2, ChronoUnit.HOURS));
         sale.setStartTime(Instant.now().minus(1, ChronoUnit.HOURS));
         sale.setEndTime(Instant.now().plus(1, ChronoUnit.HOURS));
         return sale;
@@ -68,8 +79,9 @@ class PurchaseRequestServiceTest {
     }
 
     @Test
-    void submit_beforeStartTime_throwsSaleNotStarted() {
+    void submit_beforeEarlyAccessStart_throwsSaleNotStarted() {
         FlashSale sale = activeSale();
+        sale.setEarlyAccessStart(Instant.now().plus(30, ChronoUnit.MINUTES));
         sale.setStartTime(Instant.now().plus(1, ChronoUnit.HOURS));
         when(flashSaleService.findById(flashSaleId)).thenReturn(sale);
 
@@ -78,8 +90,48 @@ class PurchaseRequestServiceTest {
     }
 
     @Test
+    void submit_duringEarlyAccessWindow_asUnregisteredCustomer_throwsEarlyAccessDenied() {
+        FlashSale sale = activeSale();
+        sale.setEarlyAccessStart(Instant.now().minus(10, ChronoUnit.MINUTES));
+        sale.setStartTime(Instant.now().plus(30, ChronoUnit.MINUTES));
+        when(flashSaleService.findById(flashSaleId)).thenReturn(sale);
+        when(customerRepository.findById("cust-1")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> purchaseRequestService.submit(flashSaleId, new CreatePurchaseRequestDto("cust-1", 1)))
+                .isInstanceOf(EarlyAccessDeniedException.class);
+    }
+
+    @Test
+    void submit_duringEarlyAccessWindow_asStandardCustomer_throwsEarlyAccessDenied() {
+        FlashSale sale = activeSale();
+        sale.setEarlyAccessStart(Instant.now().minus(10, ChronoUnit.MINUTES));
+        sale.setStartTime(Instant.now().plus(30, ChronoUnit.MINUTES));
+        when(flashSaleService.findById(flashSaleId)).thenReturn(sale);
+        when(customerRepository.findById("cust-1"))
+                .thenReturn(Optional.of(new Customer("cust-1", "Alice", MembershipLevel.STANDARD, 0)));
+
+        assertThatThrownBy(() -> purchaseRequestService.submit(flashSaleId, new CreatePurchaseRequestDto("cust-1", 1)))
+                .isInstanceOf(EarlyAccessDeniedException.class);
+    }
+
+    @Test
+    void submit_duringEarlyAccessWindow_asGoldCustomer_enqueuesPendingRequest() {
+        FlashSale sale = activeSale();
+        sale.setEarlyAccessStart(Instant.now().minus(10, ChronoUnit.MINUTES));
+        sale.setStartTime(Instant.now().plus(30, ChronoUnit.MINUTES));
+        when(flashSaleService.findById(flashSaleId)).thenReturn(sale);
+        when(customerRepository.findById("cust-vip"))
+                .thenReturn(Optional.of(new Customer("cust-vip", "Bob", MembershipLevel.GOLD, 4)));
+
+        PurchaseRequest saved = purchaseRequestService.submit(flashSaleId, new CreatePurchaseRequestDto("cust-vip", 1));
+
+        assertThat(saved.getCustomerId()).isEqualTo("cust-vip");
+    }
+
+    @Test
     void submit_afterEndTime_throwsSaleEnded() {
         FlashSale sale = activeSale();
+        sale.setEarlyAccessStart(Instant.now().minus(3, ChronoUnit.HOURS));
         sale.setStartTime(Instant.now().minus(2, ChronoUnit.HOURS));
         sale.setEndTime(Instant.now().minus(1, ChronoUnit.HOURS));
         when(flashSaleService.findById(flashSaleId)).thenReturn(sale);

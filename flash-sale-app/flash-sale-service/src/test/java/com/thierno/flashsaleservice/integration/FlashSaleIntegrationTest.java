@@ -58,12 +58,17 @@ class FlashSaleIntegrationTest {
         productId = UUID.fromString((String) products[0].get("id"));
     }
 
+    /** No real early-access window: earlyAccessStart == startTime. */
     private UUID createSale(int totalStock, Instant start, Instant end) {
+        return createSale(totalStock, start, start, end);
+    }
+
+    private UUID createSale(int totalStock, Instant earlyAccessStart, Instant start, Instant end) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         String body = """
-                {"productId":"%s","totalStock":%d,"startTime":"%s","endTime":"%s"}
-                """.formatted(productId, totalStock, start, end);
+                {"productId":"%s","totalStock":%d,"earlyAccessStart":"%s","startTime":"%s","endTime":"%s"}
+                """.formatted(productId, totalStock, earlyAccessStart, start, end);
         ResponseEntity<Map> response = restTemplate.postForEntity(
                 "/api/flash-sales", new HttpEntity<>(body, headers), Map.class);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
@@ -146,7 +151,7 @@ class FlashSaleIntegrationTest {
     }
 
     @Test
-    void purchase_beforeStartTime_returns409WithProblemDetail() {
+    void purchase_beforeEarlyAccessStart_returns409WithProblemDetail() {
         UUID saleId = createSale(5, Instant.now().plus(1, ChronoUnit.HOURS), Instant.now().plus(2, ChronoUnit.HOURS));
 
         ResponseEntity<Map> response = submitPurchase(saleId, "cust-1", 1);
@@ -190,5 +195,51 @@ class FlashSaleIntegrationTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(response.getBody()).containsEntry("errorCode", "SALE_404");
+    }
+
+    @Test
+    void purchase_duringEarlyAccessWindow_asStandardCustomer_returns403WithProblemDetail() {
+        UUID saleId = createSale(5,
+                Instant.now().minus(10, ChronoUnit.MINUTES),
+                Instant.now().plus(30, ChronoUnit.MINUTES),
+                Instant.now().plus(1, ChronoUnit.HOURS));
+
+        ResponseEntity<Map> response = submitPurchase(saleId, "cust-standard", 1);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(response.getBody()).containsEntry("errorCode", "SALE_005");
+    }
+
+    @Test
+    void purchase_duringEarlyAccessWindow_asPlatinumCustomer_getsConfirmed() {
+        UUID saleId = createSale(5,
+                Instant.now().minus(10, ChronoUnit.MINUTES),
+                Instant.now().plus(30, ChronoUnit.MINUTES),
+                Instant.now().plus(1, ChronoUnit.HOURS));
+
+        ResponseEntity<Map> submitResponse = submitPurchase(saleId, "cust-platinum", 1);
+        assertThat(submitResponse.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+        UUID requestId = UUID.fromString((String) submitResponse.getBody().get("id"));
+
+        Map<?, ?> decided = awaitDecision(saleId, requestId);
+        assertThat(decided.get("status")).isEqualTo("CONFIRMED");
+    }
+
+    @Test
+    void purchase_underContention_prioritizesHigherMembershipCustomer_overStandardCustomer() {
+        UUID saleId = createSale(1, Instant.now().minus(1, ChronoUnit.MINUTES), Instant.now().plus(1, ChronoUnit.HOURS));
+
+        // cust-standard submits first, cust-platinum submits a little later - priority
+        // ranking should still hand the single unit of stock to the platinum member.
+        ResponseEntity<Map> standardSubmit = submitPurchase(saleId, "cust-standard", 1);
+        ResponseEntity<Map> platinumSubmit = submitPurchase(saleId, "cust-platinum", 1);
+        UUID standardId = UUID.fromString((String) standardSubmit.getBody().get("id"));
+        UUID platinumId = UUID.fromString((String) platinumSubmit.getBody().get("id"));
+
+        Map<?, ?> standardDecided = awaitDecision(saleId, standardId);
+        Map<?, ?> platinumDecided = awaitDecision(saleId, platinumId);
+
+        assertThat(platinumDecided.get("status")).isEqualTo("CONFIRMED");
+        assertThat(standardDecided.get("status")).isEqualTo("REJECTED_SOLD_OUT");
     }
 }
