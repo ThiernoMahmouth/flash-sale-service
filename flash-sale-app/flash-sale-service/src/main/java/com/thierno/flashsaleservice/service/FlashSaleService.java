@@ -35,6 +35,7 @@ public class FlashSaleService {
         sale.setEarlyAccessStart(request.earlyAccessStart());
         sale.setStartTime(request.startTime());
         sale.setEndTime(request.endTime());
+        sale.setMaxUnitsPerCustomer(request.maxUnitsPerCustomer());
 
         FlashSale saved = flashSaleRepository.save(sale);
         log.info("Created flash sale id={} productId={} totalStock={} earlyAccess={} window=[{}, {})",
