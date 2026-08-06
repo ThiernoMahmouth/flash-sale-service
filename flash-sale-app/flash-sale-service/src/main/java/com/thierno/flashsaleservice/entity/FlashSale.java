@@ -46,18 +46,10 @@ public class FlashSale {
     @Column(name = "version", nullable = false)
     private Long version;
 
-    /**
-     * Remaining stock is derived rather than stored redundantly - soldStock is the
-     * only value ever mutated by the purchase processor.
-     */
     public int remainingStock() {
         return totalStock - soldStock;
     }
 
-    /**
-     * Pure, Spring-free window/stock logic so it can be unit tested for every boundary
-     * (exactly at startTime/endTime, exactly sold out) without spinning up a context.
-     */
     public FlashSaleStatus statusAt(Instant now) {
         if (remainingStock() <= 0) {
             return FlashSaleStatus.SOLD_OUT;
