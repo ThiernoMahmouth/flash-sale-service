@@ -58,7 +58,14 @@ public enum ErrorType {
             "Customer Not Found",
             HttpStatus.NOT_FOUND,
             "No customer found for the given id",
-            "customer-not-found");
+            "customer-not-found"),
+
+    PURCHASE_LIMIT_EXCEEDED(
+            "SALE_006",
+            "Purchase Limit Exceeded",
+            HttpStatus.CONFLICT,
+            "This would exceed the maximum units allowed per customer for this flash sale",
+            "purchase-limit-exceeded");
 
     private final String     code;
     private final String     title;

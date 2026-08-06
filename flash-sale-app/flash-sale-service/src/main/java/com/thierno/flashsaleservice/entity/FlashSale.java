@@ -42,6 +42,9 @@ public class FlashSale {
     @Column(name = "end_time", nullable = false)
     private Instant endTime;
 
+    @Column(name = "max_units_per_customer")
+    private Integer maxUnitsPerCustomer;
+
     @Version
     @Column(name = "version", nullable = false)
     private Long version;

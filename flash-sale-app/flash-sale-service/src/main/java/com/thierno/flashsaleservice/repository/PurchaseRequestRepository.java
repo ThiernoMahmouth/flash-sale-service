@@ -15,4 +15,11 @@ public interface PurchaseRequestRepository extends JpaRepository<PurchaseRequest
 
     @Query("select distinct r.flashSaleId from PurchaseRequest r where r.status = :status")
     List<UUID> findFlashSaleIdsWithStatus(@Param("status") PurchaseRequestStatus status);
+
+    @Query("select coalesce(sum(r.quantity), 0) from PurchaseRequest r "
+            + "where r.flashSaleId = :flashSaleId and r.customerId = :customerId and r.status in :statuses")
+    int sumQuantityByFlashSaleIdAndCustomerIdAndStatusIn(
+            @Param("flashSaleId") UUID flashSaleId,
+            @Param("customerId") String customerId,
+            @Param("statuses") List<PurchaseRequestStatus> statuses);
 }
