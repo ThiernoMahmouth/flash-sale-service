@@ -72,7 +72,7 @@ public class FlashSaleAllocationService {
                 .orElse(BigDecimal.ZERO);
 
         for (PurchaseRequest request : confirmed) {
-            recordPurchaseAndPublish(sale, request, unitPrice, customersById);
+            recordPurchaseAndPublish(sale, request, unitPrice);
         }
 
         purchaseRequestRepository.saveAll(ranked);
@@ -128,8 +128,16 @@ public class FlashSaleAllocationService {
         return confirmed;
     }
 
-    private void recordPurchaseAndPublish(
-            FlashSale sale, PurchaseRequest request, BigDecimal unitPrice, Map<String, Customer> customersById) {
+    /**
+     * Purchase history (Customer.purchaseCount / tier auto-promotion) is deliberately
+     * NOT updated here. This method only records the sale and publishes the
+     * confirmation event through the outbox; {@code PurchaseConfirmedConsumer} is what
+     * grows purchase history, asynchronously, off the back of that same Kafka event -
+     * so the write path here stays about stock/allocation only, and loyalty
+     * progression genuinely depends on the event-driven flow rather than duplicating
+     * it inline.
+     */
+    private void recordPurchaseAndPublish(FlashSale sale, PurchaseRequest request, BigDecimal unitPrice) {
         Purchase purchase = new Purchase();
         purchase.setFlashSaleId(sale.getId());
         purchase.setPurchaseRequestId(request.getId());
@@ -138,28 +146,11 @@ public class FlashSaleAllocationService {
         purchase.setUnitPrice(unitPrice);
         Purchase saved = purchaseRepository.save(purchase);
 
-        recordPurchaseHistory(request.getCustomerId(), customersById);
-
         log.info("Confirmed purchase id={} flashSaleId={} customerId={} quantity={}",
                 saved.getId(), sale.getId(), request.getCustomerId(), request.getQuantity());
 
         outboxService.save(purchaseConfirmedTopic, sale.getId().toString(), new PurchaseConfirmedEvent(
                 UUID.randomUUID(), saved.getId(), sale.getId(), request.getId(), request.getCustomerId(),
                 request.getQuantity(), unitPrice, saved.getPurchasedAt()));
-    }
-
-    /**
-     * Confirmed purchases build purchase history even for customers who never
-     * explicitly registered - only premium membership itself has to be granted
-     * out-of-band (via the customer API), history accrues automatically.
-     */
-    private void recordPurchaseHistory(String customerId, Map<String, Customer> customersById) {
-        Customer customer = customersById.get(customerId);
-        if (customer == null) {
-            customer = new Customer(customerId, null, MembershipLevel.STANDARD, 0);
-            customersById.put(customerId, customer);
-        }
-        customer.setPurchaseCount(customer.getPurchaseCount() + 1);
-        customerRepository.save(customer);
     }
 }
