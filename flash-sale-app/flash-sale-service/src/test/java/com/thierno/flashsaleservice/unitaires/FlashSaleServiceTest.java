@@ -34,12 +34,14 @@ class FlashSaleServiceTest {
     private FlashSaleService flashSaleService;
 
     private UUID productId;
+    private Instant earlyAccessStart;
     private Instant start;
     private Instant end;
 
     @BeforeEach
     void setUp() {
         productId = UUID.randomUUID();
+        earlyAccessStart = Instant.now().plus(30, ChronoUnit.MINUTES);
         start = Instant.now().plus(1, ChronoUnit.HOURS);
         end = Instant.now().plus(2, ChronoUnit.HOURS);
     }
@@ -48,23 +50,31 @@ class FlashSaleServiceTest {
     void create_withValidWindow_savesAndReturnsSale() {
         when(flashSaleRepository.save(any(FlashSale.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        FlashSale saved = flashSaleService.create(new CreateFlashSaleRequest(productId, 10, start, end));
+        FlashSale saved = flashSaleService.create(new CreateFlashSaleRequest(productId, 10, earlyAccessStart, start, end));
 
         assertThat(saved.getProductId()).isEqualTo(productId);
         assertThat(saved.getTotalStock()).isEqualTo(10);
         assertThat(saved.getSoldStock()).isZero();
+        assertThat(saved.getEarlyAccessStart()).isEqualTo(earlyAccessStart);
         verify(flashSaleRepository).save(any(FlashSale.class));
     }
 
     @Test
     void create_whenStartTimeNotBeforeEndTime_throwsInvalidSaleWindow() {
-        assertThatThrownBy(() -> flashSaleService.create(new CreateFlashSaleRequest(productId, 10, end, start)))
+        assertThatThrownBy(() -> flashSaleService.create(new CreateFlashSaleRequest(productId, 10, earlyAccessStart, end, start)))
                 .isInstanceOf(InvalidSaleWindowException.class);
     }
 
     @Test
     void create_whenStartTimeEqualsEndTime_throwsInvalidSaleWindow() {
-        assertThatThrownBy(() -> flashSaleService.create(new CreateFlashSaleRequest(productId, 10, start, start)))
+        assertThatThrownBy(() -> flashSaleService.create(new CreateFlashSaleRequest(productId, 10, earlyAccessStart, start, start)))
+                .isInstanceOf(InvalidSaleWindowException.class);
+    }
+
+    @Test
+    void create_whenEarlyAccessStartAfterStartTime_throwsInvalidSaleWindow() {
+        assertThatThrownBy(() -> flashSaleService.create(
+                new CreateFlashSaleRequest(productId, 10, start.plus(1, ChronoUnit.MINUTES), start, end)))
                 .isInstanceOf(InvalidSaleWindowException.class);
     }
 
