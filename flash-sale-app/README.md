@@ -48,9 +48,17 @@ Between the two, only customers at/above `flash-sale.priority.early-access-min-l
 unregistered `customerId` is treated as `STANDARD` and denied. From `startTime` onward,
 anyone may submit - stock contention is then resolved purely by the ranking above.
 
-Purchase history accrues automatically: a customer's `purchaseCount` increments on
-every confirmed purchase, even if they were never explicitly registered. Only the
-membership *tier* itself has to be granted out-of-band, via the customer API.
+### Bonus: event-driven loyalty progression
+
+`FlashSaleAllocationService` only records the purchase and publishes
+`flashsale.purchase.confirmed` through the outbox - it does **not** touch
+`Customer.purchaseCount` itself. A separate `PurchaseConfirmedConsumer` (its own
+consumer group, idempotent via `ProcessedEvent`/`IdempotencyService`) consumes that
+same event to grow purchase history and auto-promote membership tier
+(`purchaseCount` 5/10/20 -> `SILVER`/`GOLD`/`PLATINUM`, never demotes), auto-creating a
+`STANDARD` customer record if the id was never registered. This makes the Kafka
+round trip functionally required rather than decorative: loyalty progression cannot
+happen without it.
 
 ## Running locally
 
