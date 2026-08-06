@@ -1,7 +1,6 @@
 package com.thierno.flashsaleservice.consumer;
 
 import com.thierno.flashsaleservice.entity.Customer;
-import com.thierno.flashsaleservice.entity.MembershipLevel;
 import com.thierno.flashsaleservice.event.PurchaseConfirmedEvent;
 import com.thierno.flashsaleservice.idempotency.IdempotencyService;
 import com.thierno.flashsaleservice.repository.CustomerRepository;
@@ -14,12 +13,6 @@ import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Consumes the flash sale's own outbox event to grow purchase history and
- * auto-promote membership tier - the mechanism the priority-access story (US2) needs
- * to actually reward repeat customers over time, decoupled from the purchase-request
- * write path via Kafka rather than done inline in the same transaction.
- */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -43,7 +36,7 @@ public class PurchaseConfirmedConsumer {
         }
 
         Customer customer = customerRepository.findById(event.customerId())
-                .orElseGet(() -> newStandardCustomer(event.customerId()));
+                .orElseGet(() -> Customer.newStandard(event.customerId()));
         customer.setPurchaseCount(customer.getPurchaseCount() + 1);
         boolean promoted = customer.promoteIfEligible();
         customerRepository.save(customer);
@@ -53,13 +46,5 @@ public class PurchaseConfirmedConsumer {
         log.info("customerId={} purchaseCount={} membershipLevel={} promoted={} | offset={}",
                 customer.getCustomerId(), customer.getPurchaseCount(), customer.getMembershipLevel(),
                 promoted, offset);
-    }
-
-    private Customer newStandardCustomer(String customerId) {
-        Customer customer = new Customer();
-        customer.setCustomerId(customerId);
-        customer.setMembershipLevel(MembershipLevel.STANDARD);
-        customer.setPurchaseCount(0);
-        return customer;
     }
 }

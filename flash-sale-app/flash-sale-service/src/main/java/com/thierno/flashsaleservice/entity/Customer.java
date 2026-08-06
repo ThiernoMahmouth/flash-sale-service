@@ -29,13 +29,6 @@ public class Customer {
     @Column(name = "purchase_count", nullable = false)
     private Integer purchaseCount = 0;
 
-    /**
-     * Promotes (never demotes) the customer to the highest tier their purchaseCount
-     * now qualifies them for. Pure/Spring-free so promotion-threshold edge cases are
-     * unit-testable without a context.
-     *
-     * @return true if the membership level actually changed
-     */
     public boolean promoteIfEligible() {
         MembershipLevel eligible = MembershipLevel.eligibleFor(purchaseCount);
         if (eligible.ordinal() > membershipLevel.ordinal()) {
@@ -43,5 +36,13 @@ public class Customer {
             return true;
         }
         return false;
+    }
+
+    public static Customer newStandard(String customerId) {
+        Customer customer = new Customer();
+        customer.setCustomerId(customerId);
+        customer.setMembershipLevel(MembershipLevel.STANDARD);
+        customer.setPurchaseCount(0);
+        return customer;
     }
 }

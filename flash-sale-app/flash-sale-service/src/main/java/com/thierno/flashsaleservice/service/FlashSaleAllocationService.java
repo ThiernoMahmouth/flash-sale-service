@@ -2,7 +2,6 @@ package com.thierno.flashsaleservice.service;
 
 import com.thierno.flashsaleservice.entity.Customer;
 import com.thierno.flashsaleservice.entity.FlashSale;
-import com.thierno.flashsaleservice.entity.MembershipLevel;
 import com.thierno.flashsaleservice.entity.Product;
 import com.thierno.flashsaleservice.entity.Purchase;
 import com.thierno.flashsaleservice.entity.PurchaseRequest;
@@ -30,18 +29,12 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
-/**
- * Owns the transactional stock-allocation work for a single flash sale. Kept as its own
- * Spring bean (rather than inline in the {@code @Scheduled} method) so the scheduler can
- * call {@link #processSale(UUID)} through a real proxy - a direct self-invocation from
- * inside the same class would silently skip the {@code @Transactional} advice.
- */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class FlashSaleAllocationService {
 
-    private static final Customer UNKNOWN_CUSTOMER = new Customer(null, null, MembershipLevel.STANDARD, 0);
+    private static final Customer UNKNOWN_CUSTOMER = Customer.newStandard(null);
 
     private final PurchaseRequestRepository purchaseRequestRepository;
     private final FlashSaleRepository flashSaleRepository;
@@ -85,11 +78,6 @@ public class FlashSaleAllocationService {
                 .collect(Collectors.toMap(Customer::getCustomerId, c -> c, (a, b) -> a, HashMap::new));
     }
 
-    /**
-     * Priority ranking: higher membership tier first, then more purchase history, then
-     * whoever asked first. An unrecognized customerId ranks as a brand-new STANDARD
-     * member rather than failing the whole batch.
-     */
     public List<PurchaseRequest> rank(List<PurchaseRequest> pending, Map<String, Customer> customersById) {
         Comparator<PurchaseRequest> byMembershipDesc = Comparator.comparingInt(
                 (PurchaseRequest r) -> customersById.getOrDefault(r.getCustomerId(), UNKNOWN_CUSTOMER)
@@ -104,11 +92,6 @@ public class FlashSaleAllocationService {
                 .toList();
     }
 
-    /**
-     * Pure allocation: walks the already-ranked requests and awards remaining stock
-     * until it runs out, mutating request statuses and the sale's soldStock in place.
-     * No repositories touched here so it is directly unit-testable.
-     */
     public List<PurchaseRequest> allocate(FlashSale sale, List<PurchaseRequest> ranked, boolean saleEnded) {
         Instant now = Instant.now();
         List<PurchaseRequest> confirmed = new ArrayList<>();
@@ -128,15 +111,6 @@ public class FlashSaleAllocationService {
         return confirmed;
     }
 
-    /**
-     * Purchase history (Customer.purchaseCount / tier auto-promotion) is deliberately
-     * NOT updated here. This method only records the sale and publishes the
-     * confirmation event through the outbox; {@code PurchaseConfirmedConsumer} is what
-     * grows purchase history, asynchronously, off the back of that same Kafka event -
-     * so the write path here stays about stock/allocation only, and loyalty
-     * progression genuinely depends on the event-driven flow rather than duplicating
-     * it inline.
-     */
     private void recordPurchaseAndPublish(FlashSale sale, PurchaseRequest request, BigDecimal unitPrice) {
         Purchase purchase = new Purchase();
         purchase.setFlashSaleId(sale.getId());
