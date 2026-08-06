@@ -6,6 +6,7 @@ import com.thierno.flashsaleservice.entity.FlashSale;
 import com.thierno.flashsaleservice.entity.MembershipLevel;
 import com.thierno.flashsaleservice.entity.PurchaseRequest;
 import com.thierno.flashsaleservice.exception.EarlyAccessDeniedException;
+import com.thierno.flashsaleservice.exception.PurchaseLimitExceededException;
 import com.thierno.flashsaleservice.exception.SaleEndedException;
 import com.thierno.flashsaleservice.exception.SaleNotStartedException;
 import com.thierno.flashsaleservice.exception.SaleSoldOutException;
@@ -29,6 +30,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
@@ -148,5 +150,41 @@ class PurchaseRequestServiceTest {
 
         assertThatThrownBy(() -> purchaseRequestService.submit(flashSaleId, new CreatePurchaseRequestDto("cust-1", 1)))
                 .isInstanceOf(SaleSoldOutException.class);
+    }
+
+    @Test
+    void submit_withinPerCustomerLimit_enqueuesRequest() {
+        FlashSale sale = activeSale();
+        sale.setMaxUnitsPerCustomer(3);
+        when(flashSaleService.findById(flashSaleId)).thenReturn(sale);
+        when(purchaseRequestRepository.sumQuantityByFlashSaleIdAndCustomerIdAndStatusIn(
+                eq(flashSaleId), eq("cust-1"), any())).thenReturn(1);
+
+        PurchaseRequest saved = purchaseRequestService.submit(flashSaleId, new CreatePurchaseRequestDto("cust-1", 2));
+
+        assertThat(saved.getQuantity()).isEqualTo(2);
+    }
+
+    @Test
+    void submit_whenExceedingPerCustomerLimit_throwsPurchaseLimitExceeded() {
+        FlashSale sale = activeSale();
+        sale.setMaxUnitsPerCustomer(3);
+        when(flashSaleService.findById(flashSaleId)).thenReturn(sale);
+        when(purchaseRequestRepository.sumQuantityByFlashSaleIdAndCustomerIdAndStatusIn(
+                eq(flashSaleId), eq("cust-1"), any())).thenReturn(2);
+
+        assertThatThrownBy(() -> purchaseRequestService.submit(flashSaleId, new CreatePurchaseRequestDto("cust-1", 2)))
+                .isInstanceOf(PurchaseLimitExceededException.class);
+    }
+
+    @Test
+    void submit_whenNoLimitSet_allowsAnyQuantity() {
+        FlashSale sale = activeSale();
+        sale.setMaxUnitsPerCustomer(null);
+        when(flashSaleService.findById(flashSaleId)).thenReturn(sale);
+
+        PurchaseRequest saved = purchaseRequestService.submit(flashSaleId, new CreatePurchaseRequestDto("cust-1", 100));
+
+        assertThat(saved.getQuantity()).isEqualTo(100);
     }
 }

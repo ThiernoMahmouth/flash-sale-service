@@ -40,7 +40,7 @@ import static org.awaitility.Awaitility.await;
 @EmbeddedKafka(partitions = 1, topics = {"flashsale.purchase.confirmed", "flashsale.purchase.rejected"})
 @TestPropertySource(properties = {
         "spring.kafka.bootstrap-servers=${spring.embedded.kafka.brokers}",
-        "flash-sale.purchase-processor.fixed-delay-ms=200"
+        "flash-sale.purchase-processor.fixed-delay-ms=3000"
 })
 class FlashSaleIntegrationTest {
 
@@ -69,6 +69,18 @@ class FlashSaleIntegrationTest {
         String body = """
                 {"productId":"%s","totalStock":%d,"earlyAccessStart":"%s","startTime":"%s","endTime":"%s"}
                 """.formatted(productId, totalStock, earlyAccessStart, start, end);
+        ResponseEntity<Map> response = restTemplate.postForEntity(
+                "/api/flash-sales", new HttpEntity<>(body, headers), Map.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        return UUID.fromString((String) response.getBody().get("id"));
+    }
+
+    private UUID createSaleWithLimit(int totalStock, int maxUnitsPerCustomer, Instant start, Instant end) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        String body = """
+                {"productId":"%s","totalStock":%d,"maxUnitsPerCustomer":%d,"earlyAccessStart":"%s","startTime":"%s","endTime":"%s"}
+                """.formatted(productId, totalStock, maxUnitsPerCustomer, start, start, end);
         ResponseEntity<Map> response = restTemplate.postForEntity(
                 "/api/flash-sales", new HttpEntity<>(body, headers), Map.class);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
@@ -187,6 +199,31 @@ class FlashSaleIntegrationTest {
 
         ResponseEntity<Map> saleAfter = restTemplate.getForEntity("/api/flash-sales/" + saleId, Map.class);
         assertThat(saleAfter.getBody().get("soldStock")).isEqualTo(1);
+    }
+
+    @Test
+    void purchase_exceedingPerCustomerLimit_returns409WithProblemDetail() {
+        UUID saleId = createSaleWithLimit(10, 2, Instant.now().minus(1, ChronoUnit.MINUTES), Instant.now().plus(1, ChronoUnit.HOURS));
+
+        ResponseEntity<Map> first = submitPurchase(saleId, "cust-capped", 2);
+        assertThat(first.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+
+        ResponseEntity<Map> second = submitPurchase(saleId, "cust-capped", 1);
+
+        assertThat(second.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(second.getBody()).containsEntry("errorCode", "SALE_006");
+    }
+
+    @Test
+    void purchase_withinPerCustomerLimit_getsConfirmed() {
+        UUID saleId = createSaleWithLimit(10, 2, Instant.now().minus(1, ChronoUnit.MINUTES), Instant.now().plus(1, ChronoUnit.HOURS));
+
+        ResponseEntity<Map> submitResponse = submitPurchase(saleId, "cust-capped", 2);
+        assertThat(submitResponse.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+        UUID requestId = UUID.fromString((String) submitResponse.getBody().get("id"));
+
+        Map<?, ?> decided = awaitDecision(saleId, requestId);
+        assertThat(decided.get("status")).isEqualTo("CONFIRMED");
     }
 
     @Test
