@@ -5,7 +5,9 @@ import com.thierno.flashsaleservice.entity.Customer;
 import com.thierno.flashsaleservice.entity.FlashSale;
 import com.thierno.flashsaleservice.entity.MembershipLevel;
 import com.thierno.flashsaleservice.entity.PurchaseRequest;
+import com.thierno.flashsaleservice.entity.PurchaseRequestStatus;
 import com.thierno.flashsaleservice.exception.EarlyAccessDeniedException;
+import com.thierno.flashsaleservice.exception.PurchaseLimitExceededException;
 import com.thierno.flashsaleservice.exception.PurchaseRequestNotFoundException;
 import com.thierno.flashsaleservice.exception.SaleEndedException;
 import com.thierno.flashsaleservice.exception.SaleNotStartedException;
@@ -19,12 +21,16 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class PurchaseRequestService {
+
+    private static final List<PurchaseRequestStatus> COMMITTED_STATUSES =
+            List.of(PurchaseRequestStatus.PENDING, PurchaseRequestStatus.CONFIRMED);
 
     private final PurchaseRequestRepository purchaseRequestRepository;
     private final CustomerRepository customerRepository;
@@ -39,6 +45,7 @@ public class PurchaseRequestService {
         Instant now = Instant.now();
 
         validateWindow(sale, dto.customerId(), now);
+        validatePerCustomerLimit(sale, dto.customerId(), dto.quantity());
 
         PurchaseRequest request = new PurchaseRequest();
         request.setFlashSaleId(flashSaleId);
@@ -60,11 +67,6 @@ public class PurchaseRequestService {
         }
     }
 
-    /**
-     * Between earlyAccessStart and startTime, only customers at/above the configured
-     * membership threshold may purchase; everyone else has to wait for the public
-     * window. An unregistered customerId is treated as STANDARD (i.e. denied).
-     */
     private void validateEarlyAccess(FlashSale sale, String customerId, Instant now) {
         if (now.isBefore(sale.getEarlyAccessStart())) {
             throw new SaleNotStartedException(sale.getId(), sale.getEarlyAccessStart());
@@ -76,6 +78,18 @@ public class PurchaseRequestService {
 
         if (level.ordinal() < earlyAccessMinLevel.ordinal()) {
             throw new EarlyAccessDeniedException(sale.getId(), customerId, earlyAccessMinLevel);
+        }
+    }
+
+    private void validatePerCustomerLimit(FlashSale sale, String customerId, int requestedQuantity) {
+        Integer max = sale.getMaxUnitsPerCustomer();
+        if (max == null) return;
+
+        int alreadyCommitted = purchaseRequestRepository.sumQuantityByFlashSaleIdAndCustomerIdAndStatusIn(
+                sale.getId(), customerId, COMMITTED_STATUSES);
+
+        if (alreadyCommitted + requestedQuantity > max) {
+            throw new PurchaseLimitExceededException(sale.getId(), customerId, max);
         }
     }
 
