@@ -1,0 +1,57 @@
+server:
+  port: 8090
+
+spring:
+  application:
+    name: flash-sale-service
+  datasource:
+    url: jdbc:postgresql://localhost:5436/flash_sale_db
+    username: flashsale_user
+    password: flashsale_pass
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: none
+    show-sql: false
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    validate-on-migrate: true
+
+  kafka:
+    bootstrap-servers: localhost:9093
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      properties:
+        spring.json.add.type.headers: false
+    consumer:
+      group-id: flash-sale-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    listener:
+      ack-mode: record
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: always
+
+kafka:
+  topics:
+    purchase-confirmed: flashsale.purchase.confirmed
+    purchase-rejected: flashsale.purchase.rejected
+
+flash-sale:
+  purchase-processor:
+    fixed-delay-ms: 500
+  priority:
+    # membership levels at/above this ordinal may purchase during the early-access window
+    early-access-min-level: GOLD
